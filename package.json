@@ -1,0 +1,23 @@
+{
+    "name": "wolfymusic3.0",
+    "version": "3.0.0",
+    "main": "index.ts",
+    "license": "MIT",
+    "scripts": {
+        "start": "nodemon --exec ts-node ./index.ts",
+        "commands": "ts-node ./utils/deploy-commands.ts"
+    },
+    "dependencies": {
+        "@discordjs/voice": "^0.16.0",
+        "discord.js": "^14.11.0",
+        "dotenv": "^16.0.3",
+        "play-dl": "^1.9.6",
+        "tweetnacl": "^1.0.3"
+    },
+    "devDependencies": {
+        "nodemon": "^2.0.22",
+        "prettier": "^2.8.8",
+        "ts-node": "^10.9.1",
+        "typescript": "^5.0.4"
+    }
+}
