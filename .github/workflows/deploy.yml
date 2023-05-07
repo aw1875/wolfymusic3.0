@@ -1,0 +1,32 @@
+name: Deploy App
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    types:
+      - closed
+
+jobs:
+    build:
+      runs-on: self-hosted
+
+      strategy:
+        matrix:
+          node-version: [18.x]
+
+      steps:
+      - uses: actions/checkout@v3
+      - name: Create .env file
+        run: |
+          touch .env
+          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
+          echo "CLIENT_ID=${{ secrets.CLIENT_ID }}" >> .env
+          
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: yarn install
+      - run: pm2 start ecosystem.config.js
