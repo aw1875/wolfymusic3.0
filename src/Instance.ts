@@ -255,7 +255,6 @@ export class Instance {
 
   // Skip Song
   skipSong = (): void => {
-    console.log('SKIP HIT');
     if (!this.player) return;
 
     if (this.getQueueLength() === 1) {
