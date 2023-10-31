@@ -2,6 +2,7 @@ import {
   AudioPlayer,
   AudioPlayerState,
   VoiceConnection,
+  VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
   joinVoiceChannel,
@@ -58,6 +59,12 @@ export class Instance {
 
     // Start Listener
     this.startListenerEvent();
+
+    // Listen for disconnect event
+    this.connection.on(VoiceConnectionStatus.Disconnected, () => {
+      Log.Info('Disconnected from voice channel');
+      this.stopBot();
+    });
   }
 
   // Handle Queue
