@@ -2,6 +2,7 @@ import {
   AudioPlayer,
   AudioPlayerState,
   VoiceConnection,
+  VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
   joinVoiceChannel,
@@ -9,7 +10,7 @@ import {
 import {
   ChatInputCommandInteraction,
   EmbedBuilder,
-  InteractionResponse,
+  Message,
   ReactionCollector,
   TextChannel,
   VoiceBasedChannel,
@@ -30,6 +31,7 @@ type QueueItem = {
   duration: string;
   index: number;
 };
+const ALLOWED_REACTIONS = ['▶️', '⏸️', '⏭️', '⏹️'];
 
 export class Instance {
   messageChannel: TextChannel;
@@ -38,7 +40,7 @@ export class Instance {
   private player: AudioPlayer;
   private queue: YouTubeVideo[];
 
-  interaction: InteractionResponse;
+  lastMessage: Message | null;
   reactionCollector: ReactionCollector;
 
   constructor(messageChannel: TextChannel, voiceChannel: VoiceBasedChannel) {
@@ -57,6 +59,12 @@ export class Instance {
 
     // Start Listener
     this.startListenerEvent();
+
+    // Listen for disconnect event
+    this.connection.on(VoiceConnectionStatus.Disconnected, () => {
+      Log.Info('Disconnected from voice channel');
+      this.stopBot();
+    });
   }
 
   // Handle Queue
@@ -77,7 +85,7 @@ export class Instance {
 
   // Play Song
   playSong = async (
-    interaction: ChatInputCommandInteraction
+    interaction?: ChatInputCommandInteraction
   ): Promise<boolean> => {
     if (!this.connection) return false;
     try {
@@ -99,121 +107,58 @@ export class Instance {
       this.connection.setSpeaking(true);
       this.state = PlayerState.Playing;
 
-      if (!this.interaction) {
-        // Send Embed
-        const embed = new EmbedBuilder()
-          .setTitle('Now Playing')
-          .setColor(0x71e1d2)
-          .setImage(
-            currentSong.thumbnails[0].url ||
-              'https://cdn.discordapp.com/avatars/480796746986029057/e18b15e7c72546d4fad5a30ba89749a8.png'
-          )
-          .addFields([
-            {
-              name: currentSong.title || 'Current Song',
-              value: currentSong.durationRaw,
-              inline: false,
-            },
-          ]);
-
-        this.interaction = await interaction.reply({ embeds: [embed] });
-        this.interaction
-          .fetch()
-          .then((i) => {
-            i.react('▶️');
-            i.react('⏸️');
-            i.react('⏭️');
-            i.react('⏹️');
+      if (interaction) {
+        await interaction
+          .reply({
+            content: `Now playing ${currentSong.title}`,
+            ephemeral: true,
           })
-          .catch(() => {
-            Log.Error('Failed creating reactions');
-            return false;
-          });
-      } else {
-        // Send Embed
-        const embed = new EmbedBuilder()
-          .setTitle('Now Playing')
-          .setColor(0x71e1d2)
-          .setImage(
-            currentSong.thumbnails[0].url ||
-              'https://cdn.discordapp.com/avatars/480796746986029057/e18b15e7c72546d4fad5a30ba89749a8.png'
-          )
-          .addFields([
-            {
-              name: currentSong.title || 'Current Song',
-              value: currentSong.durationRaw,
-              inline: false,
-            },
-          ]);
-
-        // Add queue if exists
-        if (this.getQueueLength() > 1) {
-          const queueEmbed = new EmbedBuilder().setTitle('Queue');
-
-          this.getQueue().map((song) => {
-            queueEmbed.addFields([
-              {
-                name: `${song.index}. ${song.title}`,
-                value: song.duration,
-                inline: false,
-              },
-            ]);
-          });
-
-          await this.interaction.edit({ embeds: [embed, queueEmbed] });
-        } else {
-          await this.interaction.edit({ embeds: [embed] });
-        }
+          .then((i) => setTimeout(() => i.delete(), 3000));
       }
 
-      // Create Reaction Collector
-      if (this.reactionCollector) this.reactionCollector.stop();
-
-      this.reactionCollector = await this.interaction.fetch().then((i) =>
-        i.createReactionCollector({
-          filter: (reaction, user) => {
-            // Skip if user is bot
-            if (user.id === client.user?.id) return false;
-
-            const allowedReactions = ['⏭️', '▶️', '⏸️', '⏹️'];
-            const isAllowed = allowedReactions.includes(
-              reaction.emoji.name as string
-            );
-
-            return isAllowed && user.id === interaction.user.id;
+      // Create Embed
+      const embed = new EmbedBuilder()
+        .setTitle('Now Playing')
+        .setColor(0x71e1d2)
+        .setImage(
+          currentSong.thumbnails[0].url ||
+            'https://cdn.discordapp.com/avatars/480796746986029057/e18b15e7c72546d4fad5a30ba89749a8.png'
+        )
+        .addFields([
+          {
+            name: currentSong.title || 'Current Song',
+            value: currentSong.durationRaw,
+            inline: false,
           },
-        })
-      );
+        ]);
 
-      this.reactionCollector.on('collect', async (reaction, user) => {
-        // Skip if user is bot
-        if (user.id === client.user?.id) return false;
+      if (this.lastMessage) await this.lastMessage.delete();
 
-        const allowedReactions = ['⏭️', '▶️', '⏸️', '⏹️'];
-        const isAllowed = allowedReactions.includes(
-          reaction.emoji.name as string
-        );
-
-        const interactionUserId = this.interaction.interaction.user.id;
-
-        if (isAllowed && user.id === interactionUserId) {
-          switch (reaction.emoji.name) {
-            case '⏭️':
-              this.skipSong();
-              break;
-            case '▶️':
-              this.resumeSong();
-              break;
-            case '⏸️':
-              this.pauseSong();
-              break;
-            case '⏹️':
-              this.stopBot();
-              break;
-          }
-        }
-        reaction.users.remove(user.id);
+      const message = await this.messageChannel.send({
+        embeds: [embed],
       });
+
+      this.createReactionCollector(message);
+
+      if (this.getQueueLength() > 1) {
+        const queueEmbed = new EmbedBuilder().setTitle('Queue');
+
+        this.getQueue().map((song) => {
+          queueEmbed.addFields([
+            {
+              name: `${song.index}. ${song.title}`,
+              value: song.duration,
+              inline: false,
+            },
+          ]);
+        });
+
+        await message.edit({ embeds: [embed, queueEmbed] });
+      } else {
+        await message.edit({ embeds: [embed] });
+      }
+
+      this.lastMessage = message;
     } catch {
       Log.Error('Error playing song');
       this.stopBot();
@@ -266,10 +211,7 @@ export class Instance {
 
       // Play next song
       this.queue.shift();
-      if (this.queue.length)
-        this.playSong(
-          this.interaction.interaction as ChatInputCommandInteraction
-        );
+      if (this.queue.length) this.playSong();
     }
   };
 
@@ -279,10 +221,67 @@ export class Instance {
     // Cleanup
     this.player.stop();
     this.connection.destroy();
-    instances.delete(this.messageChannel.id);
-    this.interaction.fetch().then((i) => i.delete());
+    this.lastMessage?.delete();
+    this.lastMessage = null;
+    this.queue = [];
 
+    instances.delete(this.messageChannel.guildId);
     Log.Info(`Deleted instance for ${this.messageChannel.guild.id}`);
+  };
+
+  renewInteraction = async (
+    embed: EmbedBuilder,
+    queueEmbed: EmbedBuilder
+  ): Promise<void> => {
+    if (this.lastMessage) await this.lastMessage.delete();
+
+    const message = await this.messageChannel.send({
+      embeds: [embed, queueEmbed],
+    });
+
+    await this.createReactionCollector(message);
+
+    this.lastMessage = message;
+  };
+
+  private createReactionCollector = async (message: Message): Promise<void> => {
+    ALLOWED_REACTIONS.forEach((reaction) => message.react(reaction));
+
+    if (this.reactionCollector) this.reactionCollector.stop();
+
+    this.reactionCollector = message.createReactionCollector({
+      filter: (reaction, user) => {
+        if (user.id === client.user?.id) return false;
+        return ALLOWED_REACTIONS.includes(reaction.emoji.name as string);
+      },
+    });
+
+    this.reactionCollector.on('collect', async (reaction, user) => {
+      if (user.id === client.user?.id) return false;
+      const isAllowed = ALLOWED_REACTIONS.includes(
+        reaction.emoji.name as string
+      );
+
+      if (isAllowed) {
+        switch (reaction.emoji.name) {
+          case '⏭️':
+            this.skipSong();
+            break;
+          case '▶️':
+            this.resumeSong();
+            break;
+          case '⏸️':
+            this.pauseSong();
+            break;
+          case '⏹️':
+            this.stopBot();
+            break;
+        }
+      }
+      reaction.users.remove(user.id);
+    });
+
+    Log.Success('Successfully created reaction collector');
   };
 
   private startListenerEvent = (): void => {

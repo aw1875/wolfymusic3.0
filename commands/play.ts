@@ -120,12 +120,12 @@ export const execute = async (interaction: ChatInputCommandInteraction) => {
       .addFields([
         {
           name: currentSong.title || 'Current Song',
-          value: video.durationRaw,
+          value: currentSong.durationRaw,
           inline: false,
         },
       ]);
     const queueEmbed = createQueueEmbed(instance);
-    await instance.interaction.edit({ embeds: [embed, queueEmbed] });
+    await instance.renewInteraction(embed, queueEmbed);
 
     await interaction
       .reply(`Added ${video.title} to the queue`)
